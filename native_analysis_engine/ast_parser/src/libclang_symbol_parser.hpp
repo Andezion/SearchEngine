@@ -17,7 +17,7 @@ public:
 
 private:
     std::string language_label_;  // "C" / "C++" идёт в Node::language
-    std::string clang_x_mode_;    // "c" / "c++" будет "-x" <mode>
+    std::string clang_x_mode_;  // "c" / "c++" будет "-x" <mode>
     std::string clang_std_flag_;  // "-std=c17" / "-std=c++17"
 };
 
