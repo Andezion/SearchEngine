@@ -31,3 +31,12 @@ export function getColorForExtension(extension: string | undefined): string {
   const ext = extension ?? '';
   return EXTENSION_COLORS[ext] ?? hashColor(ext);
 }
+
+const LANGUAGE_COLORS: Record<string, string> = {
+  'C': '#5590d9',
+  'C++': '#e0723c',
+};
+
+export function getColorForLanguage(language: string | null | undefined): string {
+  return LANGUAGE_COLORS[language ?? ''] ?? hashColor(language ?? '');
+}
