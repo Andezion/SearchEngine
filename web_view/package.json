@@ -1,0 +1,50 @@
+{
+  "name": "codegraph-intelligence",
+  "displayName": "CodeGraph Intelligence",
+  "description": "Visualize a codebase as an interactive graph.",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codegraph.visualizeProject",
+        "title": "CodeGraph: Visualize Project"
+      }
+    ],
+    "configuration": {
+      "title": "CodeGraph Intelligence",
+      "properties": {
+        "codegraph.scannerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the codegraph_scanner executable. If empty, defaults to <workspace>/build/native_analysis_engine/project_scanner/codegraph_scanner."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "check-types": "tsc --noEmit -p ./",
+    "package": "node esbuild.js --production",
+    "vscode:prepublish": "npm run check-types && npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "cytoscape": "^3.34.0"
+  }
+}
