@@ -4,10 +4,13 @@ export interface GraphNode {
     | 'project'
     | 'directory'
     | 'file'
+    | 'namespace'
     | 'struct'
     | 'class'
     | 'union'
     | 'enum'
+    | 'function'
+    | 'method'
     | 'field'
     | 'constant';
   name: string;
