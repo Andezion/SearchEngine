@@ -1,11 +1,15 @@
 import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
 import { graphToElements } from './graphToElements';
-import { getColorForExtension } from './colors';
+import { getColorForExtension, getColorForLanguage } from './colors';
+import { renderLegend } from './legend';
 import {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
   Graph,
 } from '../../src/graphTypes';
+
+cytoscape.use(fcose);
 
 const vscodeApi = acquireVsCodeApi();
 
@@ -18,7 +22,18 @@ function renderGraph(graph: Graph): void {
   cytoscape({
     container,
     elements: graphToElements(graph),
-    layout: { name: 'cose', animate: false },
+    layout: {
+      name: 'fcose',
+      quality: 'default',
+      randomize: true,
+      animate: false,
+      fit: true,
+      padding: 30,
+      nodeSeparation: 90,
+      idealEdgeLength: () => 60,
+      nodeRepulsion: () => 4500,
+      packComponents: false,
+    } as cytoscape.LayoutOptions,
     style: [
       {
         selector: 'node[type="project"], node[type="directory"]',
@@ -34,10 +49,10 @@ function renderGraph(graph: Graph): void {
         },
       },
       {
-        selector: 'node[type="file"]',
+        selector: 'node[type="file"]:childless',
         style: {
           label: 'data(name)',
-          'font-size': 9,
+          'font-size': 10,
           width: 18,
           height: 18,
           color: '#ddd',
@@ -47,17 +62,72 @@ function renderGraph(graph: Graph): void {
         },
       },
       {
-        selector: 'node[type="struct"], node[type="class"], node[type="union"], node[type="enum"]',
+        selector: 'node[type="file"]:parent',
         style: {
-          shape: 'round-rectangle',
-          'background-color': '#3a3a5c',
-          'background-opacity': 0.25,
+          label: 'data(name)',
+          'font-size': 10,
+          'text-valign': 'top',
+          'text-margin-y': -4,
+          color: '#ddd',
+          'background-color': (ele: cytoscape.NodeSingular) =>
+            getColorForExtension(ele.data('extension')),
+          'background-opacity': 0.15,
           'border-width': 1,
-          'border-color': '#8888cc',
+          'border-color': '#888',
+        },
+      },
+      {
+        selector: 'node[type="namespace"]',
+        style: {
+          shape: 'rectangle',
+          'background-color': '#3a5c46',
+          'background-opacity': 0.2,
+          'border-width': 1,
+          'border-style': 'dashed',
+          'border-color': '#6cbf8c',
           label: 'data(name)',
           'font-size': 9,
           color: '#ddd',
           'text-valign': 'top',
+        },
+      },
+      {
+        selector: 'node[type="struct"], node[type="class"], node[type="union"], node[type="enum"]',
+        style: {
+          shape: 'round-rectangle',
+          'background-opacity': 0.25,
+          'border-width': 1,
+          'border-color': '#8888cc',
+          label: 'data(name)',
+          'font-size': 10,
+          color: '#ddd',
+          'text-valign': 'top',
+          'background-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
+        },
+      },
+      {
+        selector: 'node[type="class"]',
+        style: { 'border-width': 2 },
+      },
+      {
+        selector: 'node[type="union"]',
+        style: { 'border-style': 'dashed' },
+      },
+      {
+        selector: 'node[type="enum"]',
+        style: { 'border-style': 'dotted' },
+      },
+      {
+        selector: 'node[type="function"], node[type="method"]',
+        style: {
+          shape: 'diamond',
+          width: 10,
+          height: 10,
+          label: 'data(name)',
+          'font-size': 7,
+          color: '#ddd',
+          'text-valign': 'bottom',
+          'background-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
         },
       },
       {
@@ -97,6 +167,8 @@ window.addEventListener('message', (event: MessageEvent<ExtensionToWebviewMessag
     renderGraph(event.data.graph);
   }
 });
+
+renderLegend();
 
 const readyMessage: WebviewToExtensionMessage = { type: 'ready' };
 vscodeApi.postMessage(readyMessage);
