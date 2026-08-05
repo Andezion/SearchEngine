@@ -64,7 +64,8 @@ struct MemberVisitContext {
     std::string parent_node_id;
 };
 
-CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor /*parent*/, CXClientData data) {
+// тут мы обходим членов класса/структуры/юнита/энума и добавляем их в граф
+CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor /* parent */, CXClientData data) {
     auto* mctx = static_cast<MemberVisitContext*>(data);
     CXCursorKind kind = clang_getCursorKind(cursor);
 
@@ -72,6 +73,7 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor /*parent*/, CXCli
         return CXChildVisit_Continue;
     }
 
+    // пытаемся понять какой тип у поля/константы, чтобы положить его в metadata
     Node node;
     node.id = mctx->ctx->local_ids->next();
     node.type = (kind == CXCursor_FieldDecl) ? "field" : "constant";
@@ -80,19 +82,19 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor /*parent*/, CXCli
     node.language = *mctx->ctx->language_label;
     fill_line_range(cursor, node);
 
+    // если это поле, то кладём его тип в metadata, если это константа, то кладём её значение в metadata
     if (kind == CXCursor_FieldDecl) {
         CXType field_type = clang_getCursorType(cursor);
         node.metadata["field_type"] = to_std_string(clang_getTypeSpelling(field_type));
     } else {
-        // Signed accessor only — a deliberate v0.2 simplification. Values
-        // outside int64 range (or unsigned enums relying on the extra bit)
-        // would need clang_getEnumConstantDeclUnsignedValue instead.
+        // clang_getEnumConstantDeclValue возвращает long long, потому что константа может быть отрицательной, мразь
         long long value = clang_getEnumConstantDeclValue(cursor);
         node.metadata["value"] = value;
     }
 
     mctx->ctx->fragment->nodes.push_back(node);
 
+    // добавляем связь "contains" от родительского узла к этому узлу
     Edge contains;
     contains.id = mctx->ctx->local_ids->next();
     contains.type = "contains";
@@ -103,35 +105,36 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor /*parent*/, CXCli
     return CXChildVisit_Continue;
 }
 
-CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /*parent*/, CXClientData data) {
+// тут мы обходим top-level declarations в файле и добавляем их в граф
+CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, CXClientData data) {
     auto* ctx = static_cast<VisitContext*>(data);
     CXCursorKind kind = clang_getCursorKind(cursor);
 
+    // если это не namespace и не linkage spec, то мы ищем только struct/class/union/enum
     if (kind == CXCursor_Namespace || kind == CXCursor_LinkageSpec) {
-        // Not a type declaration itself — just a scoping wrapper (namespace {}
-        // / extern "C" {}). Recurse through it so structs/classes/unions/enums
-        // declared directly inside are still found at "top level" of the
-        // file, without extracting the namespace itself as a node yet, and
-        // without recursing into anything ELSE nested (still no types nested
-        // inside other types/functions).
+        // тут мы рекурсивно обходим содержимое namespace или linkage spec, чтобы найти struct/class/union/enum
         return CXChildVisit_Recurse;
     }
+    // если это не struct/class/union/enum, то пропускаем
     if (kind != CXCursor_StructDecl && kind != CXCursor_ClassDecl &&
         kind != CXCursor_UnionDecl && kind != CXCursor_EnumDecl) {
         return CXChildVisit_Continue;
     }
+    // если это forward declaration, то пропускаем
     if (!clang_isCursorDefinition(cursor)) {
-        return CXChildVisit_Continue;  // skip forward declarations
+        return CXChildVisit_Continue;  
     }
 
+    // проверяем, что declaration находится в том же файле, что и target_file, иначе пропускаем
     CXSourceLocation loc = clang_getCursorLocation(cursor);
     CXFile decl_file;
     unsigned line = 0, col = 0, offset = 0;
     clang_getExpansionLocation(loc, &decl_file, &line, &col, &offset);
     if (!clang_File_isEqual(decl_file, ctx->target_file)) {
-        return CXChildVisit_Continue;  // declared via an #include'd header — skip
+        return CXChildVisit_Continue;  // если declaration находится в другом файле, то пропускаем
     }
 
+    // работаем с declaration, добавляем его в граф
     Node node;
     node.id = ctx->local_ids->next();
     node.type = kind == CXCursor_ClassDecl   ? "class"
@@ -145,6 +148,7 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /*parent*/, CX
 
     ctx->fragment->nodes.push_back(node);
 
+    // добавляем связь "defines" от файла к этому узлу
     Edge defines;
     defines.id = ctx->local_ids->next();
     defines.type = "defines";
@@ -152,6 +156,7 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /*parent*/, CX
     defines.target = node.id;
     ctx->fragment->edges.push_back(defines);
 
+    // тут мы обходим членов класса/структуры/юнита/энума и добавляем их в граф
     MemberVisitContext mctx{ctx, node.id};
     clang_visitChildren(cursor, &visit_member_decl, &mctx);
 
