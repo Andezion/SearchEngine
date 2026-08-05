@@ -45,6 +45,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "cytoscape": "^3.34.0"
+    "cytoscape": "^3.34.0",
+    "cytoscape-fcose": "^2.2.0"
   }
 }
