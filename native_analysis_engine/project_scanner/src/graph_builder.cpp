@@ -2,9 +2,11 @@
 
 #include <filesystem>
 #include <iostream>
+#include <unordered_map>
 
 #include "codegraph/graph_merge.hpp"
 #include "codegraph/parser_registry.hpp"
+#include "codegraph/reference_resolver.hpp"
 
 namespace codegraph {
 
@@ -17,6 +19,11 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
     graph.root = project_root_absolute_path;
 
     IdGenerator id_gen; // хуйня айди
+
+    // отложенные кросс-файловые связи - резолвятся после того, как весь
+    // проект просканирован (см. reference_resolver.hpp)
+    std::vector<PendingCall> all_pending_calls;
+    std::vector<PendingImport> all_pending_imports;
 
     // создаём узел
     Node project_node; 
@@ -63,8 +70,14 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
                         relative_path,
                         node_id,
                     };
-                    Graph fragment = parser->parseFile(input);
-                    merge_graph_fragment(graph, std::move(fragment), id_gen);
+                    ParseResult result = parser->parseFile(input);
+                    merge_graph_fragment(graph, std::move(result.fragment), id_gen);
+                    all_pending_calls.insert(all_pending_calls.end(),
+                                              std::make_move_iterator(result.pending_calls.begin()),
+                                              std::make_move_iterator(result.pending_calls.end()));
+                    all_pending_imports.insert(
+                        all_pending_imports.end(), std::make_move_iterator(result.pending_imports.begin()),
+                        std::make_move_iterator(result.pending_imports.end()));
                 } catch (const std::exception& e) {
                     std::cerr << "warning: symbol extraction failed for " << relative_path
                               << ": " << e.what() << " (file node kept, symbols skipped)\n";
@@ -77,6 +90,29 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
 
     // запускаем обход директории
     walk_directory(project_root_absolute_path, project_id, walk_options, visitor);
+
+    // теперь, когда все узлы получили финальные глобальные id, строим
+    // справочники и резолвим отложенные кросс-файловые связи (calls/imports)
+    std::unordered_map<std::string, std::string> usr_to_node_id;
+    std::unordered_map<std::string, std::string> path_to_file_node_id;
+    for (const Node& node : graph.nodes) {
+        if (node.metadata.contains("usr")) {
+            const std::string usr = node.metadata.at("usr").get<std::string>();
+            if (!usr.empty()) {
+                usr_to_node_id.emplace(usr, node.id);  // first-wins при дублях
+            }
+        }
+        if (node.type == "file" && node.file) {
+            std::error_code ec;
+            std::filesystem::path abs = std::filesystem::weakly_canonical(
+                std::filesystem::path(project_root_absolute_path) / *node.file, ec);
+            if (!ec) {
+                path_to_file_node_id.emplace(abs.string(), node.id);
+            }
+        }
+    }
+    resolve_pending_references(graph, id_gen, all_pending_calls, all_pending_imports,
+                                usr_to_node_id, path_to_file_node_id);
 
     return graph;
 }
