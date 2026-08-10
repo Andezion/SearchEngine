@@ -23,6 +23,7 @@ export function graphToElements(graph: Graph): ElementDefinition[] {
   const edgeElements: ElementDefinition[] = graph.edges.map((edge) => ({
     data: {
       id: edge.id,
+      type: edge.type,
       source: edge.source,
       target: edge.target,
     },
