@@ -2,7 +2,9 @@
 
 #include <clang-c/Index.h>
 
+#include <filesystem>
 #include <iostream>
+#include <set>
 #include <vector>
 
 namespace codegraph {
@@ -62,7 +64,60 @@ struct VisitContext {
     // никогда не мутируется на месте, иначе сиблинги
     // после закрытия namespace ошибочно унаследуют его как контейнер
     std::string container_node_id;
+    std::vector<PendingCall>* pending_calls;
 };
+
+// USR (Unified Symbol Resolution) вызывающей функции/метода + куда собирать
+// найденные вызовы, пока обходим её тело
+struct CallCollectContext {
+    std::string caller_usr;
+    std::vector<PendingCall>* pending_calls;
+};
+
+
+CXChildVisitResult visit_for_calls(CXCursor cursor, CXCursor /* parent */, CXClientData data) {
+    auto* cctx = static_cast<CallCollectContext*>(data);
+    if (clang_getCursorKind(cursor) == CXCursor_CallExpr) {
+        CXCursor callee = clang_getCursorReferenced(cursor);
+        if (!clang_Cursor_isNull(callee)) {
+            std::string callee_usr = to_std_string(clang_getCursorUSR(callee));
+            if (!callee_usr.empty()) {
+                cctx->pending_calls->push_back(PendingCall{cctx->caller_usr, callee_usr});
+            }
+        }
+    }
+    return CXChildVisit_Recurse;
+}
+
+struct InclusionCollectContext {
+    CXFile target_file;
+    std::set<std::string>* direct_include_paths;
+};
+
+// clang_getInclusions зовёт это для КАЖДОГО #include во всём TU, включая
+// транзитивные. include_len==1 означает, что вся цепочка включения - это
+// ровно "включён напрямую из файла, который мы сейчас парсим" (стек из
+// одной локации), то есть прямой #include этого файла, а не что-то
+// затянутое через другой заголовок - те корректно всплывут сами, когда
+// промежуточный заголовок будет распарсен как свой собственный target_file
+void visit_inclusion(CXFile included_file, CXSourceLocation* /* inclusion_stack */,
+                      unsigned include_len, CXClientData data) {
+    auto* ictx = static_cast<InclusionCollectContext*>(data);
+    if (include_len != 1) {
+        return;
+    }
+    if (clang_File_isEqual(included_file, ictx->target_file)) {
+        return;  // защита от самовключения
+    }
+    // canonicalize тут же, чтобы совпадало с path_to_file_node_id, который
+    // строит graph_builder.cpp тем же std::filesystem::weakly_canonical
+    std::error_code ec;
+    std::filesystem::path canonical = std::filesystem::weakly_canonical(
+        to_std_string(clang_getFileName(included_file)), ec);
+    if (!ec) {
+        ictx->direct_include_paths->insert(canonical.string());
+    }
+}
 
 // контекст, который передаётся в clang_visitChildren при обходе членов класса/структуры/юнита/энума/проче залупы
 struct MemberVisitContext {
@@ -155,6 +210,14 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor parent, CXClientD
                 to_std_string(clang_getTypeSpelling(clang_getCursorResultType(cursor)));
         }
         node.metadata["visibility"] = access_specifier_to_string(clang_getCXXAccessSpecifier(cursor));
+
+        std::string usr = to_std_string(clang_getCursorUSR(cursor));
+        node.metadata["usr"] = usr;
+        // если у метода есть тело прямо тут (in-class definition), заодно
+        // соберём вызовы из него; для чисто объявленных методов это
+        // no-op (нет тела - clang_visitChildren ничего не найдёт)
+        CallCollectContext cctx{usr, mctx->ctx->pending_calls};
+        clang_visitChildren(cursor, &visit_for_calls, &cctx);
     }
 
     mctx->ctx->fragment->nodes.push_back(node);
@@ -215,6 +278,21 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, 
         return CXChildVisit_Continue;  // мы уже обошли детей вручную выше, повторно рекурсировать не надо
     }
 
+    if (kind == CXCursor_CXXMethod || kind == CXCursor_Constructor || kind == CXCursor_Destructor) {
+        if (clang_isCursorDefinition(cursor)) {
+            CXSourceLocation def_loc = clang_getCursorLocation(cursor);
+            CXFile def_file;
+            unsigned def_line = 0, def_col = 0, def_offset = 0;
+            clang_getExpansionLocation(def_loc, &def_file, &def_line, &def_col, &def_offset);
+            if (clang_File_isEqual(def_file, ctx->target_file)) {
+                std::string usr = to_std_string(clang_getCursorUSR(cursor));
+                CallCollectContext cctx{usr, ctx->pending_calls};
+                clang_visitChildren(cursor, &visit_for_calls, &cctx);
+            }
+        }
+        return CXChildVisit_Continue;
+    }
+
     const bool is_type_decl = kind == CXCursor_StructDecl || kind == CXCursor_ClassDecl ||
                                kind == CXCursor_UnionDecl || kind == CXCursor_EnumDecl;
     if (!is_type_decl && kind != CXCursor_FunctionDecl) {
@@ -251,6 +329,12 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, 
         node.metadata["parameters"] = collect_parameters(cursor);
         node.metadata["return_type"] =
             to_std_string(clang_getTypeSpelling(clang_getCursorResultType(cursor)));
+
+        std::string usr = to_std_string(clang_getCursorUSR(cursor));
+        node.metadata["usr"] = usr;
+        // no-op на голом объявлении без тела (нет CallExpr - нечего искать)
+        CallCollectContext cctx{usr, ctx->pending_calls};
+        clang_visitChildren(cursor, &visit_for_calls, &cctx);
     }
 
     ctx->fragment->nodes.push_back(node);
@@ -280,8 +364,9 @@ LibclangSymbolParser::LibclangSymbolParser(std::string language_label, std::stri
       clang_x_mode_(std::move(clang_x_mode)),
       clang_std_flag_(std::move(clang_std_flag)) {}
 
-Graph LibclangSymbolParser::parseFile(const ParseInput& input) const {
-    Graph fragment;
+ParseResult LibclangSymbolParser::parseFile(const ParseInput& input) const {
+    ParseResult result;
+
     IdGenerator local_ids;
 
     ClangIndexHandle index;
@@ -294,7 +379,9 @@ Graph LibclangSymbolParser::parseFile(const ParseInput& input) const {
         args.push_back(a.c_str());
     }
 
-    const unsigned options = CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing;
+    // SkipFunctionBodies убран - без тел негде искать CallExpr, а без них
+    // не построить call graph
+    const unsigned options = CXTranslationUnit_KeepGoing;
 
     CXErrorCode err = clang_parseTranslationUnit2(
         index.index, input.absolute_path.c_str(), args.data(), static_cast<int>(args.size()),
@@ -304,16 +391,24 @@ Graph LibclangSymbolParser::parseFile(const ParseInput& input) const {
         std::cerr << "warning: libclang could not parse " << input.relative_path
                    << " (CXErrorCode " << static_cast<int>(err)
                    << "), skipping symbol extraction for this file\n";
-        return fragment;
+        return result;
     }
 
     CXFile target_file = clang_getFile(tu_handle.tu, input.absolute_path.c_str());
     CXCursor root = clang_getTranslationUnitCursor(tu_handle.tu);
 
-    VisitContext ctx{&fragment, &local_ids, &input, target_file, &language_label_, input.file_node_id};
+    VisitContext ctx{&result.fragment,      &local_ids,          &input, target_file,
+                      &language_label_,      input.file_node_id, &result.pending_calls};
     clang_visitChildren(root, &visit_top_level_decl, &ctx);
 
-    return fragment;
+    std::set<std::string> direct_include_paths;
+    InclusionCollectContext ictx{target_file, &direct_include_paths};
+    clang_getInclusions(tu_handle.tu, &visit_inclusion, &ictx);
+    for (const std::string& path : direct_include_paths) {
+        result.pending_imports.push_back(PendingImport{input.file_node_id, path});
+    }
+
+    return result;
 }
 
 }  
