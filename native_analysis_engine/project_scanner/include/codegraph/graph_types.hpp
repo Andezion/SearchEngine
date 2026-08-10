@@ -40,10 +40,20 @@ struct Graph {
 // тут создаём айдишки для нод и ребер, чтобы потом можно было их уникально идентифицировать
 class IdGenerator {
 public:
-    std::string next(); // наш айди 
+    std::string next(); // наш айди
 
 private:
     std::uint64_t counter_ = 0;
+};
+
+struct PendingCall {
+    std::string caller_usr;
+    std::string callee_usr;
+};
+
+struct PendingImport {
+    std::string including_file_node_id;
+    std::string included_absolute_path;
 };
 
 void to_json(nlohmann::json& j, const Node& n); // сериализуем ноду в json
