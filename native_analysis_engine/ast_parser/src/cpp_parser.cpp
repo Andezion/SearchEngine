@@ -4,7 +4,7 @@
 
 namespace codegraph {
 
-Graph CppParser::parseFile(const ParseInput& input) const {
+ParseResult CppParser::parseFile(const ParseInput& input) const {
     static const LibclangSymbolParser impl("C++", "c++", "-std=c++17");
     return impl.parseFile(input);
 }
