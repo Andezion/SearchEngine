@@ -13,7 +13,7 @@ public:
     LibclangSymbolParser(std::string language_label, std::string clang_x_mode,
                           std::string clang_std_flag);
 
-    Graph parseFile(const ParseInput& input) const;
+    ParseResult parseFile(const ParseInput& input) const;
 
 private:
     std::string language_label_;  // "C" / "C++" идёт в Node::language
