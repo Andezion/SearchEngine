@@ -6,7 +6,7 @@ namespace codegraph {
 
 class CppParser : public LanguageParser {
 public:
-    Graph parseFile(const ParseInput& input) const override;
+    ParseResult parseFile(const ParseInput& input) const override;
 };
 
 }  
