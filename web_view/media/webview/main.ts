@@ -152,6 +152,28 @@ function renderGraph(graph: Graph): void {
           'curve-style': 'bezier',
         },
       },
+      {
+        selector: 'edge[type="calls"]',
+        style: {
+          'line-color': '#c97b4a',
+          'target-arrow-color': '#c97b4a',
+          'target-arrow-shape': 'triangle',
+          'line-style': 'solid',
+          width: 1.2,
+          'curve-style': 'bezier',
+        },
+      },
+      {
+        selector: 'edge[type="imports"]',
+        style: {
+          'line-color': '#5a8fbf',
+          'target-arrow-color': '#5a8fbf',
+          'target-arrow-shape': 'triangle',
+          'line-style': 'dashed',
+          width: 1,
+          'curve-style': 'bezier',
+        },
+      },
     ],
   }).on('dblclick', 'node[type="file"]', (event) => {
     const relativePath = event.target.data('file');
