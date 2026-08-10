@@ -16,6 +16,7 @@ set_target_properties(libclang_imported PROPERTIES
 add_library(ast_parser STATIC
   src/language_registry.cpp
   src/graph_merge.cpp
+  src/reference_resolver.cpp
   src/libclang_symbol_parser.cpp
   src/c_parser.cpp
   src/cpp_parser.cpp
