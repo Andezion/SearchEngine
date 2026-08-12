@@ -56,6 +56,11 @@ struct PendingImport {
     std::string included_absolute_path;
 };
 
+struct PendingFieldAccess {
+    std::string accessor_usr;
+    std::string field_usr;
+};
+
 void to_json(nlohmann::json& j, const Node& n); // сериализуем ноду в json
 void to_json(nlohmann::json& j, const Edge& e); // сериализуем ребро в json
 void to_json(nlohmann::json& j, const Graph& g); // сериализуем граф в json
