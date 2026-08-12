@@ -3,10 +3,13 @@ import fcose from 'cytoscape-fcose';
 import { graphToElements } from './graphToElements';
 import { getColorForExtension, getColorForLanguage } from './colors';
 import { renderLegend } from './legend';
+import { buildReverseAdjacency, computeImpact } from './impactAnalysis';
+import { renderImpactPanel, showImpact, clearImpactPanel } from './impactPanel';
 import {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
   Graph,
+  GraphNode,
 } from '../../src/graphTypes';
 
 cytoscape.use(fcose);
@@ -19,7 +22,10 @@ function renderGraph(graph: Graph): void {
     return;
   }
 
-  cytoscape({
+  const nodeById = new Map<string, GraphNode>(graph.nodes.map((node) => [node.id, node]));
+  const reverseAdjacency = buildReverseAdjacency(graph);
+
+  const cy = cytoscape({
     container,
     elements: graphToElements(graph),
     layout: {
@@ -174,12 +180,100 @@ function renderGraph(graph: Graph): void {
           'curve-style': 'bezier',
         },
       },
+      {
+        selector: 'edge[type="writes"]',
+        style: {
+          'line-color': '#c94a6b',
+          'target-arrow-color': '#c94a6b',
+          'target-arrow-shape': 'triangle',
+          'line-style': 'solid',
+          width: 1.2,
+          'curve-style': 'bezier',
+        },
+      },
+      {
+        selector: 'edge[type="reads"]',
+        style: {
+          'line-color': '#4ac9a0',
+          'target-arrow-color': '#4ac9a0',
+          'target-arrow-shape': 'triangle',
+          'line-style': 'dotted',
+          width: 1,
+          'curve-style': 'bezier',
+        },
+      },
+      {
+        selector: 'node.impact-selected',
+        style: {
+          'border-width': 3,
+          'border-color': '#e0c341',
+          'overlay-color': '#e0c341',
+          'overlay-opacity': 0.25,
+          'overlay-padding': 4,
+        },
+      },
+      {
+        selector: 'node.impact-affected',
+        style: {
+          'border-width': 2,
+          'border-color': '#e0724a',
+          'overlay-color': '#e0724a',
+          'overlay-opacity': 0.15,
+        },
+      },
+      {
+        selector: 'edge.impact-affected-edge',
+        style: {
+          'line-color': '#e0724a',
+          'target-arrow-color': '#e0724a',
+          width: 2.5,
+        },
+      },
     ],
-  }).on('dblclick', 'node[type="file"]', (event) => {
+  });
+
+  function clearImpact(): void {
+    cy.elements().removeClass('impact-selected impact-affected impact-affected-edge');
+    clearImpactPanel();
+  }
+
+  renderImpactPanel(clearImpact);
+
+  cy.on('dblclick', 'node[type="file"]', (event) => {
     const relativePath = event.target.data('file');
     if (relativePath) {
       const message: WebviewToExtensionMessage = { type: 'openFile', relativePath };
       vscodeApi.postMessage(message);
+    }
+  });
+
+  cy.on('tap', 'node', (event) => {
+    const startId = event.target.id();
+    const startNode = nodeById.get(startId);
+    if (!startNode) {
+      return;
+    }
+
+    const { affectedNodeIds, traversedEdgeIds } = computeImpact(startId, reverseAdjacency);
+    const affectedNodes = affectedNodeIds
+      .map((id) => nodeById.get(id))
+      .filter((node): node is GraphNode => node !== undefined);
+
+    clearImpact();
+    cy.getElementById(startId).addClass('impact-selected');
+    for (const id of affectedNodeIds) {
+      cy.getElementById(id).addClass('impact-affected');
+    }
+    for (const id of traversedEdgeIds) {
+      cy.getElementById(id).addClass('impact-affected-edge');
+    }
+
+    showImpact(startNode, affectedNodes);
+  });
+
+  cy.on('tap', (event) => {
+    if (event.target === cy) {
+      clearImpact();
     }
   });
 }
