@@ -65,6 +65,8 @@ struct VisitContext {
     // после закрытия namespace ошибочно унаследуют его как контейнер
     std::string container_node_id;
     std::vector<PendingCall>* pending_calls;
+    std::vector<PendingFieldAccess>* pending_reads;
+    std::vector<PendingFieldAccess>* pending_writes;
 };
 
 // USR (Unified Symbol Resolution) вызывающей функции/метода + куда собирать
@@ -87,6 +89,80 @@ CXChildVisitResult visit_for_calls(CXCursor cursor, CXCursor /* parent */, CXCli
         }
     }
     return CXChildVisit_Recurse;
+}
+
+enum class AccessMode { Read, Write };
+
+// USR того, кто обращается к полю (функция/метод) + текущий режим доступа +
+// куда собирать найденные чтения/записи, пока обходим тело
+struct DataFlowContext {
+    std::string owner_usr;
+    AccessMode mode;
+    std::vector<PendingFieldAccess>* pending_reads;
+    std::vector<PendingFieldAccess>* pending_writes;
+};
+
+CXChildVisitResult visit_for_dataflow(CXCursor cursor, CXCursor parent, CXClientData data);
+
+struct ChildModeDispatch {
+    DataFlowContext* dctx;
+    int index = 0;
+};
+
+CXChildVisitResult dispatch_child_mode(CXCursor child, CXCursor parent, CXClientData data) {
+    auto* d = static_cast<ChildModeDispatch*>(data);
+    DataFlowContext child_ctx = *d->dctx;
+    child_ctx.mode = (d->index == 0) ? AccessMode::Write : AccessMode::Read;
+    d->index++;
+    visit_for_dataflow(child, parent, &child_ctx);
+    return CXChildVisit_Continue;
+}
+
+// Обходим тело функции/метода в поисках чтений/записей полей. Никогда не
+// возвращает Recurse - вместо этого сами решаем, с каким режимом (Read или
+// Write) идти в детей, и вызываем visit_for_dataflow напрямую
+CXChildVisitResult visit_for_dataflow(CXCursor cursor, CXCursor /* parent */, CXClientData data) {
+    auto* dctx = static_cast<DataFlowContext*>(data);
+    CXCursorKind kind = clang_getCursorKind(cursor);
+
+    bool is_plain_assign = kind == CXCursor_BinaryOperator &&
+                            clang_getCursorBinaryOperatorKind(cursor) == CXBinaryOperator_Assign;
+    bool is_compound_assign = kind == CXCursor_CompoundAssignOperator;  // любой opcode - запись
+    bool is_incdec = false;
+    if (kind == CXCursor_UnaryOperator) {
+        enum CXUnaryOperatorKind uop = clang_getCursorUnaryOperatorKind(cursor);
+        is_incdec = uop == CXUnaryOperator_PostInc || uop == CXUnaryOperator_PostDec ||
+                    uop == CXUnaryOperator_PreInc || uop == CXUnaryOperator_PreDec;
+    }
+
+    if (is_plain_assign || is_compound_assign || is_incdec) {
+        ChildModeDispatch disp{dctx, 0};
+        clang_visitChildren(cursor, &dispatch_child_mode, &disp);
+        return CXChildVisit_Continue;
+    }
+
+    if (kind == CXCursor_MemberRefExpr) {
+        CXCursor referenced = clang_getCursorReferenced(cursor);
+        // MemberRefExpr резолвится и в поля, и в методы (obj.method()
+        // тоже даёт MemberRefExpr) - без этой проверки каждый вызов метода
+        // превращался бы в ложное "чтение" вызываемого метода как будто это поле
+        if (!clang_Cursor_isNull(referenced) && clang_getCursorKind(referenced) == CXCursor_FieldDecl) {
+            std::string field_usr = to_std_string(clang_getCursorUSR(referenced));
+            if (!field_usr.empty()) {
+                PendingFieldAccess pfa{dctx->owner_usr, field_usr};
+                if (dctx->mode == AccessMode::Write) {
+                    dctx->pending_writes->push_back(pfa);
+                } else {
+                    dctx->pending_reads->push_back(pfa);
+                }
+            }
+        }
+        clang_visitChildren(cursor, &visit_for_dataflow, dctx);  // тот же режим (может быть цепочка a b c)
+        return CXChildVisit_Continue;
+    }
+
+    clang_visitChildren(cursor, &visit_for_dataflow, dctx);  // режим не меняется
+    return CXChildVisit_Continue;
 }
 
 struct InclusionCollectContext {
@@ -195,6 +271,7 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor parent, CXClientD
     if (kind == CXCursor_FieldDecl) {
         CXType field_type = clang_getCursorType(cursor);
         node.metadata["field_type"] = to_std_string(clang_getTypeSpelling(field_type));
+        node.metadata["usr"] = to_std_string(clang_getCursorUSR(cursor));
     } else if (kind == CXCursor_EnumConstantDecl) {
         // clang_getEnumConstantDeclValue возвращает long long, потому что константа может быть отрицательной, мразь
         long long value = clang_getEnumConstantDeclValue(cursor);
@@ -218,6 +295,9 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor parent, CXClientD
         // no-op (нет тела - clang_visitChildren ничего не найдёт)
         CallCollectContext cctx{usr, mctx->ctx->pending_calls};
         clang_visitChildren(cursor, &visit_for_calls, &cctx);
+
+        DataFlowContext dctx{usr, AccessMode::Read, mctx->ctx->pending_reads, mctx->ctx->pending_writes};
+        clang_visitChildren(cursor, &visit_for_dataflow, &dctx);
     }
 
     mctx->ctx->fragment->nodes.push_back(node);
@@ -288,6 +368,9 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, 
                 std::string usr = to_std_string(clang_getCursorUSR(cursor));
                 CallCollectContext cctx{usr, ctx->pending_calls};
                 clang_visitChildren(cursor, &visit_for_calls, &cctx);
+
+                DataFlowContext dctx{usr, AccessMode::Read, ctx->pending_reads, ctx->pending_writes};
+                clang_visitChildren(cursor, &visit_for_dataflow, &dctx);
             }
         }
         return CXChildVisit_Continue;
@@ -335,6 +418,9 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, 
         // no-op на голом объявлении без тела (нет CallExpr - нечего искать)
         CallCollectContext cctx{usr, ctx->pending_calls};
         clang_visitChildren(cursor, &visit_for_calls, &cctx);
+
+        DataFlowContext dctx{usr, AccessMode::Read, ctx->pending_reads, ctx->pending_writes};
+        clang_visitChildren(cursor, &visit_for_dataflow, &dctx);
     }
 
     ctx->fragment->nodes.push_back(node);
@@ -397,8 +483,11 @@ ParseResult LibclangSymbolParser::parseFile(const ParseInput& input) const {
     CXFile target_file = clang_getFile(tu_handle.tu, input.absolute_path.c_str());
     CXCursor root = clang_getTranslationUnitCursor(tu_handle.tu);
 
-    VisitContext ctx{&result.fragment,      &local_ids,          &input, target_file,
-                      &language_label_,      input.file_node_id, &result.pending_calls};
+    VisitContext ctx{&result.fragment,     &local_ids,
+                      &input,              target_file,
+                      &language_label_,    input.file_node_id,
+                      &result.pending_calls, &result.pending_reads,
+                      &result.pending_writes};
     clang_visitChildren(root, &visit_top_level_decl, &ctx);
 
     std::set<std::string> direct_include_paths;
