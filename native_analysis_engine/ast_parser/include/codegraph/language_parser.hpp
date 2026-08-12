@@ -21,6 +21,8 @@ struct ParseResult {
     Graph fragment;
     std::vector<PendingCall> pending_calls;
     std::vector<PendingImport> pending_imports;
+    std::vector<PendingFieldAccess> pending_reads;
+    std::vector<PendingFieldAccess> pending_writes;
 };
 
 // тут мы определяем абстрактный интерфейс для парсера языка,
