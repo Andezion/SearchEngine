@@ -42,3 +42,51 @@ body {
   border-radius: 2px;
   flex: none;
 }
+
+.legend-divider {
+  border-top: 1px solid #555;
+  margin: 6px 0;
+}
+
+#impact-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  background: rgba(30, 30, 30, 0.78);
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #ddd;
+  max-width: 260px;
+  max-height: 60vh;
+  overflow-y: auto;
+  font-family: sans-serif;
+}
+
+.impact-placeholder {
+  color: #999;
+  font-style: italic;
+}
+
+.impact-header {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.impact-clear-button {
+  font-size: 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.impact-summary {
+  margin-bottom: 6px;
+  color: #ccc;
+}
+
+.impact-row {
+  padding: 1px 0;
+  color: #ddd;
+}
