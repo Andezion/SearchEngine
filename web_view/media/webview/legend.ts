@@ -1,12 +1,7 @@
-import { LEGEND_ENTRIES } from './nodeStyles';
+import { LEGEND_ENTRIES, EDGE_LEGEND_ENTRIES, LegendEntry } from './nodeStyles';
 
-export function renderLegend(): void {
-  const container = document.getElementById('legend');
-  if (!container) {
-    return;
-  }
-
-  for (const entry of LEGEND_ENTRIES) {
+function appendLegendRows(container: HTMLElement, entries: LegendEntry[]): void {
+  for (const entry of entries) {
     const row = document.createElement('div');
     row.className = 'legend-row';
 
@@ -21,4 +16,19 @@ export function renderLegend(): void {
     row.appendChild(label);
     container.appendChild(row);
   }
+}
+
+export function renderLegend(): void {
+  const container = document.getElementById('legend');
+  if (!container) {
+    return;
+  }
+
+  appendLegendRows(container, LEGEND_ENTRIES);
+
+  const divider = document.createElement('div');
+  divider.className = 'legend-divider';
+  container.appendChild(divider);
+
+  appendLegendRows(container, EDGE_LEGEND_ENTRIES);
 }
