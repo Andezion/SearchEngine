@@ -20,3 +20,10 @@ export const LEGEND_ENTRIES: LegendEntry[] = [
   { type: 'function/method', label: 'Function / Method', color: getColorForLanguage('C++'), shape: 'diamond' },
   { type: 'field/constant', label: 'Field / Constant', color: '#cccccc', shape: 'ellipse (small)' },
 ];
+
+export const EDGE_LEGEND_ENTRIES: LegendEntry[] = [
+  { type: 'calls', label: 'Calls', color: '#c97b4a', shape: 'solid line' },
+  { type: 'imports', label: 'Imports', color: '#5a8fbf', shape: 'dashed line' },
+  { type: 'writes', label: 'Writes', color: '#c94a6b', shape: 'solid line' },
+  { type: 'reads', label: 'Reads', color: '#4ac9a0', shape: 'dotted line' },
+];
