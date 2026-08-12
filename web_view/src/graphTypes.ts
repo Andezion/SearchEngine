@@ -23,7 +23,7 @@ export interface GraphNode {
 
 export interface GraphEdge {
   id: string;
-  type: 'contains' | 'defines' | 'calls' | 'imports';
+  type: 'contains' | 'defines' | 'calls' | 'imports' | 'reads' | 'writes';
   source: string;
   target: string;
 }
