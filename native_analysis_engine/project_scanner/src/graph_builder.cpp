@@ -24,6 +24,8 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
     // проект просканирован (см. reference_resolver.hpp)
     std::vector<PendingCall> all_pending_calls;
     std::vector<PendingImport> all_pending_imports;
+    std::vector<PendingFieldAccess> all_pending_reads;
+    std::vector<PendingFieldAccess> all_pending_writes;
 
     // создаём узел
     Node project_node; 
@@ -78,6 +80,12 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
                     all_pending_imports.insert(
                         all_pending_imports.end(), std::make_move_iterator(result.pending_imports.begin()),
                         std::make_move_iterator(result.pending_imports.end()));
+                    all_pending_reads.insert(all_pending_reads.end(),
+                                              std::make_move_iterator(result.pending_reads.begin()),
+                                              std::make_move_iterator(result.pending_reads.end()));
+                    all_pending_writes.insert(all_pending_writes.end(),
+                                               std::make_move_iterator(result.pending_writes.begin()),
+                                               std::make_move_iterator(result.pending_writes.end()));
                 } catch (const std::exception& e) {
                     std::cerr << "warning: symbol extraction failed for " << relative_path
                               << ": " << e.what() << " (file node kept, symbols skipped)\n";
@@ -111,8 +119,8 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
             }
         }
     }
-    resolve_pending_references(graph, id_gen, all_pending_calls, all_pending_imports,
-                                usr_to_node_id, path_to_file_node_id);
+    resolve_pending_references(graph, id_gen, all_pending_calls, all_pending_reads, all_pending_writes,
+                                all_pending_imports, usr_to_node_id, path_to_file_node_id);
 
     return graph;
 }
