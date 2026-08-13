@@ -39,6 +39,57 @@ std::string to_std_string(CXString s) {
     return result;
 }
 
+std::string classify_type_kind(CXType type) {
+    CXType canonical = clang_getCanonicalType(type);
+
+    for (;;) {
+        CXTypeKind k = canonical.kind;
+        if (k == CXType_Pointer || k == CXType_LValueReference || k == CXType_RValueReference) {
+            CXType pointee = clang_getCanonicalType(clang_getPointeeType(canonical));
+            if (pointee.kind == CXType_FunctionProto || pointee.kind == CXType_FunctionNoProto) {
+                return "function";  
+            }
+            canonical = pointee;
+            continue;
+        }
+        if (k == CXType_ConstantArray || k == CXType_IncompleteArray || k == CXType_VariableArray ||
+            k == CXType_DependentSizedArray) {
+            canonical = clang_getCanonicalType(clang_getArrayElementType(canonical));
+            continue;
+        }
+        break;
+    }
+
+    switch (canonical.kind) {
+        case CXType_FunctionProto:
+        case CXType_FunctionNoProto:
+            return "function";
+        case CXType_Enum: {
+            CXCursor decl = clang_getTypeDeclaration(canonical);
+            return clang_EnumDecl_isScoped(decl) ? "enum_class" : "enum";
+        }
+        case CXType_Record: {
+            CXCursor decl = clang_getTypeDeclaration(canonical);
+            switch (clang_getCursorKind(decl)) {
+                case CXCursor_StructDecl:
+                    return "struct";
+                case CXCursor_UnionDecl:
+                    return "union";
+                default:
+                    return "class";  // ClassDecl и шаблонные специализацииб типа std::vector<T> и так далее - тоже "class"
+            }
+        }
+        default:
+            break;
+    }
+
+    if (canonical.kind >= CXType_FirstBuiltin && canonical.kind <= CXType_LastBuiltin) {
+        return "value";  
+    }
+
+    return "unknown";  
+}
+
 // эта функция заполняет node.line_start и node.line_end по cursor, который указывает на declaration
 void fill_line_range(CXCursor cursor, Node& node) {
     CXSourceRange extent = clang_getCursorExtent(cursor);
@@ -214,7 +265,9 @@ CXChildVisitResult visit_param_decl(CXCursor cursor, CXCursor /* parent */, CXCl
     auto* pctx = static_cast<ParamCollectContext*>(data);
     nlohmann::json param;
     param["name"] = to_std_string(clang_getCursorSpelling(cursor));
-    param["type"] = to_std_string(clang_getTypeSpelling(clang_getCursorType(cursor)));
+    CXType param_type = clang_getCursorType(cursor);
+    param["type"] = to_std_string(clang_getTypeSpelling(param_type));
+    param["type_kind"] = classify_type_kind(param_type);
     pctx->params->push_back(std::move(param));
     return CXChildVisit_Continue;
 }
@@ -271,6 +324,7 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor parent, CXClientD
     if (kind == CXCursor_FieldDecl) {
         CXType field_type = clang_getCursorType(cursor);
         node.metadata["field_type"] = to_std_string(clang_getTypeSpelling(field_type));
+        node.metadata["field_type_kind"] = classify_type_kind(field_type);
         node.metadata["usr"] = to_std_string(clang_getCursorUSR(cursor));
     } else if (kind == CXCursor_EnumConstantDecl) {
         // clang_getEnumConstantDeclValue возвращает long long, потому что константа может быть отрицательной, мразь
@@ -283,8 +337,9 @@ CXChildVisitResult visit_member_decl(CXCursor cursor, CXCursor parent, CXClientD
         // всегда валидный access specifier, в отличие от свободных функций)
         node.metadata["parameters"] = collect_parameters(cursor);
         if (kind == CXCursor_CXXMethod) {
-            node.metadata["return_type"] =
-                to_std_string(clang_getTypeSpelling(clang_getCursorResultType(cursor)));
+            CXType return_type = clang_getCursorResultType(cursor);
+            node.metadata["return_type"] = to_std_string(clang_getTypeSpelling(return_type));
+            node.metadata["return_type_kind"] = classify_type_kind(return_type);
         }
         node.metadata["visibility"] = access_specifier_to_string(clang_getCXXAccessSpecifier(cursor));
 
@@ -408,10 +463,17 @@ CXChildVisitResult visit_top_level_decl(CXCursor cursor, CXCursor /* parent */, 
     node.language = *ctx->language_label;
     fill_line_range(cursor, node);
 
+    if (kind == CXCursor_EnumDecl) {
+        node.metadata["is_scoped"] = clang_EnumDecl_isScoped(cursor) != 0;
+        node.metadata["underlying_type"] =
+            to_std_string(clang_getTypeSpelling(clang_getEnumDeclIntegerType(cursor)));
+    }
+
     if (kind == CXCursor_FunctionDecl) {
         node.metadata["parameters"] = collect_parameters(cursor);
-        node.metadata["return_type"] =
-            to_std_string(clang_getTypeSpelling(clang_getCursorResultType(cursor)));
+        CXType return_type = clang_getCursorResultType(cursor);
+        node.metadata["return_type"] = to_std_string(clang_getTypeSpelling(return_type));
+        node.metadata["return_type_kind"] = classify_type_kind(return_type);
 
         std::string usr = to_std_string(clang_getCursorUSR(cursor));
         node.metadata["usr"] = usr;
