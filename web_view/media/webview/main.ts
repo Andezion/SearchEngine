@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { graphToElements } from './graphToElements';
-import { getColorForExtension, getColorForLanguage } from './colors';
+import { getColorForExtension, getColorForLanguage, getColorForType } from './colors';
 import { renderLegend } from './legend';
 import { buildReverseAdjacency, computeImpact } from './impactAnalysis';
 import { renderImpactPanel, showImpact, clearImpactPanel } from './impactPanel';
@@ -98,22 +98,23 @@ function renderGraph(graph: Graph): void {
         },
       },
       {
-        selector: 'node[type="struct"], node[type="class"], node[type="union"], node[type="enum"]',
+        selector:
+          'node[type="struct"], node[type="class"], node[type="union"], node[type="enum"], node[type="interface"]',
         style: {
           shape: 'round-rectangle',
           'background-opacity': 0.25,
-          'border-width': 1,
-          'border-color': '#8888cc',
+          'border-width': 1.5,
           label: 'data(name)',
           'font-size': 10,
           color: '#ddd',
           'text-valign': 'top',
-          'background-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
+          'background-color': (ele: cytoscape.NodeSingular) => getColorForType(ele.data('type')),
+          'border-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
         },
       },
       {
         selector: 'node[type="class"]',
-        style: { 'border-width': 2 },
+        style: { 'border-width': 2.5 },
       },
       {
         selector: 'node[type="union"]',
@@ -122,6 +123,10 @@ function renderGraph(graph: Graph): void {
       {
         selector: 'node[type="enum"]',
         style: { 'border-style': 'dotted' },
+      },
+      {
+        selector: 'node[type="interface"]',
+        style: { 'border-style': 'double', 'border-width': 4 },
       },
       {
         selector: 'node[type="function"], node[type="method"]',
@@ -133,7 +138,9 @@ function renderGraph(graph: Graph): void {
           'font-size': 7,
           color: '#ddd',
           'text-valign': 'bottom',
-          'background-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
+          'background-color': (ele: cytoscape.NodeSingular) => getColorForType(ele.data('type')),
+          'border-width': 1.5,
+          'border-color': (ele: cytoscape.NodeSingular) => getColorForLanguage(ele.data('language')),
         },
       },
       {
