@@ -26,6 +26,7 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
     std::vector<PendingImport> all_pending_imports;
     std::vector<PendingFieldAccess> all_pending_reads;
     std::vector<PendingFieldAccess> all_pending_writes;
+    std::vector<PendingContains> all_pending_contains;
 
     // создаём узел
     Node project_node; 
@@ -86,6 +87,9 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
                     all_pending_writes.insert(all_pending_writes.end(),
                                                std::make_move_iterator(result.pending_writes.begin()),
                                                std::make_move_iterator(result.pending_writes.end()));
+                    all_pending_contains.insert(
+                        all_pending_contains.end(), std::make_move_iterator(result.pending_contains.begin()),
+                        std::make_move_iterator(result.pending_contains.end()));
                 } catch (const std::exception& e) {
                     std::cerr << "warning: symbol extraction failed for " << relative_path
                               << ": " << e.what() << " (file node kept, symbols skipped)\n";
@@ -110,7 +114,9 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
                 usr_to_node_id.emplace(usr, node.id);  // first-wins при дублях
             }
         }
-        if (node.type == "file" && node.file) {
+        // и файлы (для #include/use/import на конкретный файл), и
+        // директории (Go импортирует пакет целиком - каталог, а не файл)
+        if ((node.type == "file" || node.type == "directory") && node.file) {
             std::error_code ec;
             std::filesystem::path abs = std::filesystem::weakly_canonical(
                 std::filesystem::path(project_root_absolute_path) / *node.file, ec);
@@ -120,7 +126,8 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
         }
     }
     resolve_pending_references(graph, id_gen, all_pending_calls, all_pending_reads, all_pending_writes,
-                                all_pending_imports, usr_to_node_id, path_to_file_node_id);
+                                all_pending_imports, all_pending_contains, usr_to_node_id,
+                                path_to_file_node_id);
 
     return graph;
 }
