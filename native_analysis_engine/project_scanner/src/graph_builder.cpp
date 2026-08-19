@@ -21,7 +21,7 @@ Graph build_project_graph(const std::string& project_root_absolute_path,
     IdGenerator id_gen; // хуйня айди
 
     // отложенные кросс-файловые связи - резолвятся после того, как весь
-    // проект просканирован (см. reference_resolver.hpp)
+    // проект просканирован (reference_resolver.hpp)
     std::vector<PendingCall> all_pending_calls;
     std::vector<PendingImport> all_pending_imports;
     std::vector<PendingFieldAccess> all_pending_reads;
