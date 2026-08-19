@@ -23,6 +23,7 @@ struct ParseResult {
     std::vector<PendingImport> pending_imports;
     std::vector<PendingFieldAccess> pending_reads;
     std::vector<PendingFieldAccess> pending_writes;
+    std::vector<PendingContains> pending_contains;
 };
 
 // тут мы определяем абстрактный интерфейс для парсера языка,
