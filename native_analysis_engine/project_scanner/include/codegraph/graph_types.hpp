@@ -61,6 +61,11 @@ struct PendingFieldAccess {
     std::string field_usr;
 };
 
+struct PendingContains {
+    std::string container_usr;
+    std::string member_usr;
+};
+
 void to_json(nlohmann::json& j, const Node& n); // сериализуем ноду в json
 void to_json(nlohmann::json& j, const Edge& e); // сериализуем ребро в json
 void to_json(nlohmann::json& j, const Graph& g); // сериализуем граф в json
