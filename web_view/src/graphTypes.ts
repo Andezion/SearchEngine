@@ -9,6 +9,7 @@ export interface GraphNode {
     | 'class'
     | 'union'
     | 'enum'
+    | 'interface'
     | 'function'
     | 'method'
     | 'field'
