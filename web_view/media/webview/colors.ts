@@ -35,8 +35,26 @@ export function getColorForExtension(extension: string | undefined): string {
 const LANGUAGE_COLORS: Record<string, string> = {
   'C': '#5590d9',
   'C++': '#e0723c',
+  'Rust': '#dd8e46',
+  'Python': '#3f7fb3',
+  'Go': '#4dc0b5',
 };
 
 export function getColorForLanguage(language: string | null | undefined): string {
   return LANGUAGE_COLORS[language ?? ''] ?? hashColor(language ?? '');
+}
+
+
+const TYPE_COLORS: Record<string, string> = {
+  class: '#8a63d2',
+  struct: '#4a90d9',
+  union: '#e0a13c',
+  enum: '#4aa96c',
+  interface: '#c9498f',
+  function: '#e0c341',
+  method: '#e0c341',
+};
+
+export function getColorForType(type: string | null | undefined): string {
+  return TYPE_COLORS[type ?? ''] ?? hashColor(type ?? '');
 }
